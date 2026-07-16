@@ -1,15 +1,13 @@
 /* ============================================================
-   InovaMetrics Hero — Pulse Wave Point Cloud
+   InovaMetrics Hero — Pulse Wave Point Cloud  v3
    Wix Custom Element (Web Component)
 
-   用法（在 Wix 里）:
-   - Tag name:  inovametrics-hero
-   - Server URL: 指向本文件的公开 HTTPS 地址
-   - 可选属性（在 Wix Custom Element 面板的 Attributes 里设，无需改代码）:
-       scan-color   波前高亮色   (默认 #d6e8ff)
-       base-color   静置点颜色   (默认 #8fa0b6)
-       base-bright  基础点亮度   (默认 0.2)
-       wave-speed   波前速度     (默认 3.4)
+   v3 变更（针对「杂乱、随机、无互动感」）:
+   - 鼠标移动 = 悬停光晕：光标附近的点平滑亮起并跟随，离开即熄灭
+     （即时因果反馈，不再乱发脉冲）
+   - 点击 = 唯一的波源：一次点击一道干净的扫描波
+   - 静置自动波固定从壁炉锚点发出，节奏恒定（不再随机位置）
+   - 并发波数 10→4，余辉更短，浮尘减半，微抖动降低
    ============================================================ */
 (function(){
 'use strict';
@@ -41,16 +39,13 @@ class InovametricsHero extends HTMLElement {
   connectedCallback(){
     if (this._inited) return;
     this._inited = true;
-
     const shadow = this.attachShadow({mode:'open'});
     const wrap = document.createElement('div');
     wrap.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;overflow:hidden;'+
       'background:radial-gradient(120% 90% at 70% 40%, #0a1020 0%, #04060b 60%);';
     shadow.appendChild(wrap);
-    // 让宿主元素铺满 Wix 容器
     this.style.cssText = 'display:block;position:relative;width:100%;height:100%;';
     this._wrap = wrap;
-
     loadThree().then(THREE => this._init(THREE, wrap))
                .catch(err => console.error('[inovametrics-hero]', err));
   }
@@ -61,7 +56,7 @@ class InovametricsHero extends HTMLElement {
     if (this._onVis) document.removeEventListener('visibilitychange', this._onVis);
   }
   attributeChangedCallback(name, _o, val){
-    if (!this._u) return; // 尚未初始化
+    if (!this._u) return;
     if (name==='scan-color' && val) this._u.uScanColor.value.set(val);
     if (name==='base-color' && val) this._u.uBaseColor.value.set(val);
     if (name==='base-bright' && val!=null) this._u.uBase.value = parseFloat(val);
@@ -71,21 +66,21 @@ class InovametricsHero extends HTMLElement {
   _cfg(){
     const a = (n,d)=> this.getAttribute(n) ?? d;
     return {
-      waveSpeed:    parseFloat(a('wave-speed','3.4')),
-      frontWidth:   0.2,
-      elasticAmp:   0.07,
-      springFreq:   17,
-      springDamp:   3.6,
-      glowDecay:    1.7,
-      emitRate:     0.3,
-      autoInterval: 3,
-      idleAfter:    5,
+      waveSpeed:    parseFloat(a('wave-speed','3.0')),
+      frontWidth:   0.22,
+      elasticAmp:   0.05,
+      springFreq:   15,
+      springDamp:   4.0,
+      glowDecay:    1.3,
+      hoverRadius:  0.6,
+      hoverLerp:    0.14,
+      idleInterval: 7,
+      idleAfter:    4,
       baseBright:   parseFloat(a('base-bright','0.2')),
       pointSize:    1.35,
       scanColor:    a('scan-color','#d6e8ff'),
       baseColor:    a('base-color','#8fa0b6'),
-      clickAmp:     1.5,
-      moveAmp:      0.85,
+      clickAmp:     1.3,
       heroPulse:    [0.7, 1.1, -2.8],
     };
   }
@@ -98,7 +93,6 @@ class InovametricsHero extends HTMLElement {
     const isNarrow = W() < 760;
     const DENS = isNarrow ? 0.45 : 1.0;
 
-    /* ---- 点云生成 ---- */
     const P=[], N=[], S=[];
     function g(){ return (Math.random()+Math.random()+Math.random()-1.5)/1.5; }
     function push(x,y,z,nx,ny,nz,jit){
@@ -203,13 +197,12 @@ class InovametricsHero extends HTMLElement {
     edge([-2.6,0.01,2.6],[1.9,0.01,2.6],10,[0,1,0],0.02);
     edge([-2.6,0.01,-0.8],[-2.6,0.01,2.6],10,[0,1,0],0.02);
     edge([1.9,0.01,-0.8],[1.9,0.01,2.6],10,[0,1,0],0.02);
-    const dustCnt=Math.round(900*DENS);
+    const dustCnt=Math.round(400*DENS);
     for(let i=0;i<dustCnt;i++) push(-4+Math.random()*8,Math.random()*3,-3+Math.random()*6,0,1,0,0);
 
     const COUNT=P.length/3;
     const posArr=new Float32Array(P);
 
-    /* ---- 场景 ---- */
     const renderer=new THREE.WebGLRenderer({antialias:false,alpha:true,powerPreference:'high-performance'});
     renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
     renderer.setSize(W(),H());
@@ -223,7 +216,7 @@ class InovametricsHero extends HTMLElement {
     const LOOK=new THREE.Vector3(-1.35,1.35,-0.4);
     camera.position.copy(CAM_BASE); camera.lookAt(LOOK);
 
-    const MAXP=10;
+    const MAXP=4;
     const pulsePos=[]; const pulseT=new Array(MAXP).fill(-99); const pulseAmp=new Array(MAXP).fill(0);
     for(let i=0;i<MAXP;i++) pulsePos.push(new THREE.Vector3(0,-99,0));
     let pulseHead=0;
@@ -235,7 +228,11 @@ class InovametricsHero extends HTMLElement {
       uZeta:{value:CONFIG.springDamp}, uGlowDecay:{value:CONFIG.glowDecay},
       uSize:{value:CONFIG.pointSize}, uBase:{value:reduceMotion?Math.max(CONFIG.baseBright,0.3):CONFIG.baseBright},
       uFade:{value:1.0}, uScanColor:{value:new THREE.Color(CONFIG.scanColor)},
-      uBaseColor:{value:new THREE.Color(CONFIG.baseColor)}, uJitter:{value:reduceMotion?0:1.0},
+      uBaseColor:{value:new THREE.Color(CONFIG.baseColor)}, uJitter:{value:reduceMotion?0:0.6},
+      uRayO:{value:new THREE.Vector3(0,-99,0)},
+      uRayD:{value:new THREE.Vector3(0,0,-1)},
+      uHover:{value:0},
+      uHoverR:{value:CONFIG.hoverRadius},
     };
     this._u = uniforms;
 
@@ -251,12 +248,14 @@ class InovametricsHero extends HTMLElement {
         attribute vec3 aNormal; attribute float aSeed;
         uniform vec3 uPulsePos[MAXP]; uniform float uPulseT[MAXP]; uniform float uPulseAmp[MAXP];
         uniform float uTime,uSpeed,uFrontW,uElastic,uFreq,uZeta,uGlowDecay,uSize,uJitter;
-        varying float vFront; varying float vGlow; varying float vNdcX; varying float vSeed;
+        uniform vec3 uRayO,uRayD; uniform float uHover,uHoverR;
+        varying float vFront; varying float vGlow; varying float vHalo;
+        varying float vNdcX; varying float vSeed;
         void main(){
           vec3 p=position; float front=0.0; float glow=0.0; vec3 disp=vec3(0.0);
           for(int k=0;k<MAXP;k++){
             float age=uTime-uPulseT[k];
-            if(age<0.0||age>6.0) continue;
+            if(age<0.0||age>5.0) continue;
             float amp=uPulseAmp[k];
             float d=distance(position,uPulsePos[k]);
             float att=amp/(1.0+d*0.22);
@@ -264,31 +263,39 @@ class InovametricsHero extends HTMLElement {
             front+=exp(-x*x/(uFrontW*uFrontW))*att;
             float tau=age-d/uSpeed;
             if(tau>0.0){
-              glow+=exp(-tau/uGlowDecay)*0.6*att;
+              glow+=exp(-tau/uGlowDecay)*0.55*att;
               disp+=aNormal*uElastic*att*sin(tau*uFreq)*exp(-tau*uZeta);
             }
           }
-          vFront=min(front,1.6); vGlow=min(glow,1.0); vSeed=aSeed;
-          p+=aNormal*sin(uTime*1.25+aSeed*17.0)*0.0045*uJitter;
+          vec3 w = position - uRayO;
+          float t = max(dot(w,uRayD), 0.0);
+          vec3 cp = uRayO + uRayD*t;
+          float dr = distance(position, cp);
+          float halo = exp(-dr*dr/(uHoverR*uHoverR)) * uHover;
+          vHalo = halo;
+
+          vFront=min(front,1.5); vGlow=min(glow,0.9); vSeed=aSeed;
+          p+=aNormal*sin(uTime*1.25+aSeed*17.0)*0.003*uJitter;
           p+=disp;
+          p+=aNormal*halo*0.012;
           vec4 mv=modelViewMatrix*vec4(p,1.0);
           gl_Position=projectionMatrix*mv;
           vNdcX=gl_Position.x/gl_Position.w;
-          float i=clamp(vFront+vGlow,0.0,1.0);
-          gl_PointSize=uSize*(1.0+i*1.9)*(30.0/-mv.z);
+          float i=clamp(vFront+vGlow+halo,0.0,1.0);
+          gl_PointSize=uSize*(1.0+i*1.6)*(30.0/-mv.z);
         }
       `,
       fragmentShader:`
         uniform vec3 uScanColor,uBaseColor; uniform float uBase,uFade;
-        varying float vFront,vGlow,vNdcX,vSeed;
+        varying float vFront,vGlow,vHalo,vNdcX,vSeed;
         void main(){
           vec2 c=gl_PointCoord-0.5; float dd=length(c);
           if(dd>0.5) discard;
           float soft=smoothstep(0.5,0.08,dd);
           float fade=mix(1.0,mix(0.14,1.0,smoothstep(-0.92,-0.08,vNdcX)),uFade);
-          float i=clamp(vFront+vGlow,0.0,1.0);
+          float i=clamp(vFront+vGlow+vHalo,0.0,1.0);
           vec3 col=mix(uBaseColor,uScanColor,i);
-          col+=vec3(0.9,0.95,1.0)*clamp(vFront-0.55,0.0,1.0)*0.8;
+          col+=vec3(0.9,0.95,1.0)*clamp(vFront-0.6,0.0,1.0)*0.7;
           col+=vec3(0.05,0.02,-0.02)*step(0.82,fract(vSeed*0.371));
           float alpha=(uBase+(1.0-uBase)*i)*soft*fade;
           gl_FragColor=vec4(col,alpha);
@@ -297,12 +304,14 @@ class InovametricsHero extends HTMLElement {
     });
     scene.add(new THREE.Points(geo,mat));
 
-    /* ---- 交互 ---- */
     const clock=new THREE.Clock();
     const raycaster=new THREE.Raycaster();
     const mouseNdc=new THREE.Vector2(10,10);
-    let lastPointerMove=-999,lastEmit=-999,pointerDirty=false,lastAuto=-999;
+    let pointerInside=false, lastPointerMove=-999, lastIdle=-999;
+    let hoverTarget=0;
     const _v=new THREE.Vector3();
+    const HERO=new THREE.Vector3(CONFIG.heroPulse[0],CONFIG.heroPulse[1],CONFIG.heroPulse[2]);
+
     function nearestSurfacePoint(){
       raycaster.setFromCamera(mouseNdc,camera);
       const ro=raycaster.ray.origin,rd=raycaster.ray.direction;
@@ -319,7 +328,6 @@ class InovametricsHero extends HTMLElement {
       return _v.set(posArr[best*3],posArr[best*3+1],posArr[best*3+2]).clone();
     }
     function emitPulse(o,amp,now){pulsePos[pulseHead].copy(o);pulseT[pulseHead]=now;pulseAmp[pulseHead]=amp;pulseHead=(pulseHead+1)%MAXP;}
-    function emitFromPointer(amp){const now=clock.elapsedTime;const o=nearestSurfacePoint();if(o)emitPulse(o,amp,now);lastEmit=now;}
 
     const rectOf = ()=> renderer.domElement.getBoundingClientRect();
     const setNdc = (cx,cy)=>{
@@ -328,11 +336,19 @@ class InovametricsHero extends HTMLElement {
       mouseNdc.y=-((cy-r.top)/r.height)*2+1;
       lastPointerMove=clock.elapsedTime;
     };
-    this.addEventListener('pointermove',e=>{setNdc(e.clientX,e.clientY);pointerDirty=true;},{passive:true});
-    this.addEventListener('pointerdown',e=>{setNdc(e.clientX,e.clientY);emitFromPointer(CONFIG.clickAmp);},{passive:true});
-    this.addEventListener('touchmove',e=>{if(e.touches.length){setNdc(e.touches[0].clientX,e.touches[0].clientY);pointerDirty=true;}},{passive:true});
+    this.addEventListener('pointermove',e=>{setNdc(e.clientX,e.clientY);pointerInside=true;},{passive:true});
+    this.addEventListener('pointerleave',()=>{pointerInside=false;},{passive:true});
+    this.addEventListener('pointerdown',e=>{
+      setNdc(e.clientX,e.clientY);
+      const o=nearestSurfacePoint();
+      emitPulse(o||HERO,CONFIG.clickAmp,clock.elapsedTime);
+    },{passive:true});
+    this.addEventListener('touchmove',e=>{
+      if(e.touches.length){setNdc(e.touches[0].clientX,e.touches[0].clientY);pointerInside=true;}
+    },{passive:true});
+    this.addEventListener('touchend',()=>{pointerInside=false;},{passive:true});
 
-    setTimeout(()=>{emitPulse(new THREE.Vector3(CONFIG.heroPulse[0],CONFIG.heroPulse[1],CONFIG.heroPulse[2]),1.4,clock.elapsedTime);},350);
+    setTimeout(()=>{emitPulse(HERO,1.3,clock.elapsedTime);},350);
 
     const camTarget=new THREE.Vector3().copy(CAM_BASE);
     const self=this;
@@ -344,17 +360,24 @@ class InovametricsHero extends HTMLElement {
       self._raf=requestAnimationFrame(loop);
       const now=clock.getElapsedTime();
       uniforms.uTime.value=now;
+
       if(!reduceMotion){
-        const idle=now-lastPointerMove>CONFIG.idleAfter;
-        if(!idle&&pointerDirty&&now-lastEmit>CONFIG.emitRate){emitFromPointer(CONFIG.moveAmp);pointerDirty=false;}
-        if(idle&&now-lastAuto>CONFIG.autoInterval){
-          const i=(Math.random()*COUNT)|0;
-          emitPulse(_v.set(posArr[i*3],posArr[i*3+1],posArr[i*3+2]).clone(),0.9,now);
-          lastAuto=now;
+        hoverTarget = pointerInside ? 1 : 0;
+        uniforms.uHover.value += (hoverTarget - uniforms.uHover.value) * CONFIG.hoverLerp;
+        if(uniforms.uHover.value > 0.01 && mouseNdc.x < 5){
+          raycaster.setFromCamera(mouseNdc,camera);
+          uniforms.uRayO.value.copy(raycaster.ray.origin);
+          uniforms.uRayD.value.copy(raycaster.ray.direction);
         }
-        if(!idle) lastAuto=now-CONFIG.autoInterval*0.4;
-        camTarget.x=CAM_BASE.x+(mouseNdc.x<5?mouseNdc.x:0)*0.28+Math.sin(now*0.11)*0.07;
-        camTarget.y=CAM_BASE.y-(mouseNdc.y<5?mouseNdc.y:0)*0.14+Math.sin(now*0.07)*0.04;
+        const idle = now-lastPointerMove > CONFIG.idleAfter;
+        if(idle && now-lastIdle > CONFIG.idleInterval){
+          emitPulse(HERO,0.9,now);
+          lastIdle=now;
+        }
+        if(!idle) lastIdle = now - CONFIG.idleInterval*0.5;
+
+        camTarget.x=CAM_BASE.x+(mouseNdc.x<5?mouseNdc.x:0)*0.22+Math.sin(now*0.11)*0.06;
+        camTarget.y=CAM_BASE.y-(mouseNdc.y<5?mouseNdc.y:0)*0.11+Math.sin(now*0.07)*0.035;
         camera.position.lerp(camTarget,0.045);
         camera.lookAt(LOOK);
       }
@@ -368,7 +391,6 @@ class InovametricsHero extends HTMLElement {
       renderer.setSize(w,h);
     };
     window.addEventListener('resize',this._onResize);
-    // 容器尺寸变化（Wix section 高度可能非视口）也要响应
     if(window.ResizeObserver){
       this._ro=new ResizeObserver(this._onResize);
       this._ro.observe(wrap);
