@@ -1,5 +1,5 @@
 /* ============================================================
-   InovaMetrics Hero — Pulse Wave Point Cloud  v3
+   InovaMetrics Hero — Pulse Wave Point Cloud  v4
    Wix Custom Element (Web Component)
 
    v3 变更（针对「杂乱、随机、无互动感」）:
@@ -72,7 +72,7 @@ class InovametricsHero extends HTMLElement {
       springFreq:   15,
       springDamp:   4.0,
       glowDecay:    1.3,
-      hoverRadius:  0.6,
+      hoverRadius:  0.75,
       hoverLerp:    0.14,
       idleInterval: 7,
       idleAfter:    4,
@@ -275,9 +275,10 @@ class InovametricsHero extends HTMLElement {
           vHalo = halo;
 
           vFront=min(front,1.5); vGlow=min(glow,0.9); vSeed=aSeed;
-          p+=aNormal*sin(uTime*1.25+aSeed*17.0)*0.003*uJitter;
+          p+=aNormal*sin(uTime*1.25+aSeed*17.0)*0.004*uJitter;
+          p+=aNormal*sin(uTime*0.7 + position.x*1.1 + position.z*0.8)*0.012*uJitter;
           p+=disp;
-          p+=aNormal*halo*0.012;
+          p+=aNormal*halo*0.03;
           vec4 mv=modelViewMatrix*vec4(p,1.0);
           gl_Position=projectionMatrix*mv;
           vNdcX=gl_Position.x/gl_Position.w;
@@ -376,9 +377,9 @@ class InovametricsHero extends HTMLElement {
         }
         if(!idle) lastIdle = now - CONFIG.idleInterval*0.5;
 
-        camTarget.x=CAM_BASE.x+(mouseNdc.x<5?mouseNdc.x:0)*0.22+Math.sin(now*0.11)*0.06;
-        camTarget.y=CAM_BASE.y-(mouseNdc.y<5?mouseNdc.y:0)*0.11+Math.sin(now*0.07)*0.035;
-        camera.position.lerp(camTarget,0.045);
+        camTarget.x=CAM_BASE.x+(mouseNdc.x<5?mouseNdc.x:0)*0.55+Math.sin(now*0.11)*0.06;
+        camTarget.y=CAM_BASE.y-(mouseNdc.y<5?mouseNdc.y:0)*0.28+Math.sin(now*0.07)*0.035;
+        camera.position.lerp(camTarget,0.06);
         camera.lookAt(LOOK);
       }
       renderer.render(scene,camera);
